@@ -305,6 +305,8 @@ def visualise_prediction_extremes(experiment_name: str, output_dir: Path, num_sa
             plt.tight_layout(rect=[0, 0.05, 1, 0.95]); save_or_show(fig, final_save_path, display_in_notebook=display_in_notebook)
 
 def visualise_uncertainty_extremes(experiment_name: str, output_dir: Path, num_samples: int = 3, save_path: Optional[Path] = None, display_in_notebook: bool = False):
+    from tqdm import tqdm
+    
     model, uncompiled_net, dataset_path, device, config = _get_model_and_data(experiment_name, output_dir)
     if model is None: 
         print(f"Model for '{experiment_name}' not found.")
@@ -320,14 +322,14 @@ def visualise_uncertainty_extremes(experiment_name: str, output_dir: Path, num_s
 
     valid_indices = np.where(non_bg_mask)[0]
     
-    if len(valid_indices) < num_samples * 2:
+    if len(valid_indices) < num_samples:
         print(f"Not enough tissue samples found: {len(valid_indices)}")
         return
 
     print(f"Computing uncertainty for {len(valid_indices)} tissue samples...")
     
     uncertainty_scores = []
-    batch_size = 8 
+    batch_size = 8  
     
     with h5py.File(dataset_path, 'r') as f:
         test_group = f['test']
@@ -362,85 +364,71 @@ def visualise_uncertainty_extremes(experiment_name: str, output_dir: Path, num_s
     print(f"  Max: {uncertainty_scores.max():.6f}")
     print(f"  Mean: {uncertainty_scores.mean():.6f}")
     print(f"  Median: {np.median(uncertainty_scores):.6f}")
-    print(f"  25th percentile: {np.percentile(uncertainty_scores, 25):.6f}")
     print(f"  75th percentile: {np.percentile(uncertainty_scores, 75):.6f}")
+    print(f"  90th percentile: {np.percentile(uncertainty_scores, 90):.6f}")
     
-    low_threshold = np.percentile(uncertainty_scores, 20)  
-    high_threshold = np.percentile(uncertainty_scores, 80) 
+    high_threshold = np.percentile(uncertainty_scores, 80)
+    print(f"  Using high uncertainty threshold: > {high_threshold:.6f}")
     
-    print(f"  Using thresholds: certain < {low_threshold:.6f}, uncertain > {high_threshold:.6f}")
-    
-    certain_mask = uncertainty_scores < low_threshold
     uncertain_mask = uncertainty_scores > high_threshold
-    
-    certain_filtered_idx = np.where(certain_mask)[0]
     uncertain_filtered_idx = np.where(uncertain_mask)[0]
     
-    print(f"  Found {len(certain_filtered_idx)} certain samples, {len(uncertain_filtered_idx)} uncertain samples")
+    print(f"  Found {len(uncertain_filtered_idx)} high uncertainty samples")
     
-    certain_to_show = certain_filtered_idx[:num_samples] if len(certain_filtered_idx) >= num_samples else certain_filtered_idx
+    if len(uncertain_filtered_idx) == 0:
+        print("No high uncertainty samples found")
+        return
+    
     uncertain_to_show = uncertain_filtered_idx[:num_samples] if len(uncertain_filtered_idx) >= num_samples else uncertain_filtered_idx
-    
-    indices_to_show = {
-        "Most Certain": valid_indices[certain_to_show],
-        "Most Uncertain": valid_indices[uncertain_to_show]
-    }
+    sample_indices = valid_indices[uncertain_to_show]
 
     with h5py.File(dataset_path, 'r') as f:
         test_group = f['test']
-        for case, sample_indices in indices_to_show.items():
-            if len(sample_indices) == 0: 
-                print(f"No samples found for {case} category")
-                continue
+        
+        images_np = _sort_and_load(test_group['images'], sample_indices)
+        masks_np = _sort_and_load(test_group['individual_masks'], sample_indices)
+        batch_raw = torch.from_numpy(images_np).to(device)
 
-            images_np = _sort_and_load(test_group['images'], sample_indices)
-            masks_np = _sort_and_load(test_group['individual_masks'], sample_indices)
-            batch_raw = torch.from_numpy(images_np).to(device)
+        with torch.no_grad():
+            batch_imgs = val_augmenter(batch_raw)
+            batch_imgs_norm = model.norm(batch_imgs)
+            mc_n = int(config.get('mc_samples', 10))
+            mean_pred, uncertainty_map = uncompiled_net.monte_carlo_predict(batch_imgs_norm, n_samples=mc_n)
+            pred_masks = mean_pred.argmax(dim=1).cpu().numpy()
+            uncertainty_maps_np = uncertainty_map.cpu().numpy()
 
-            with torch.no_grad():
-                batch_imgs = val_augmenter(batch_raw)
-                batch_imgs_norm = model.norm(batch_imgs)
-                mc_n = int(config.get('mc_samples', 10))
-                mean_pred, uncertainty_map = uncompiled_net.monte_carlo_predict(batch_imgs_norm, n_samples=mc_n)
-                pred_masks = mean_pred.argmax(dim=1).cpu().numpy()
-                uncertainty_maps_np = uncertainty_map.cpu().numpy()
+        actual_num_samples = len(sample_indices)
+        fig, axes = plt.subplots(actual_num_samples, 4, figsize=(16, 4 * actual_num_samples), squeeze=False)
+        fig.suptitle(f"High Uncertainty Predictions", fontsize=16)
 
-            actual_num_samples = len(sample_indices)
-            fig, axes = plt.subplots(actual_num_samples, 4, figsize=(16, 4 * actual_num_samples), squeeze=False)
-            fig.suptitle(f"{case} Samples by Predictive Uncertainty", fontsize=16)
-
-            for i, (sample_idx, pred_mask, uncertainty) in enumerate(zip(sample_indices, pred_masks, uncertainty_maps_np)):
-                gt_mask = torch.mode(torch.from_numpy(masks_np[i]), dim=0).values.numpy()
-                
-                axes[i, 0].imshow(images_np[i])
-                axes[i, 0].set_title(f'Input (Sample {sample_idx})')
-                axes[i, 0].axis('off')
-                
-                axes[i, 1].imshow(gt_mask, cmap='viridis', vmin=0, vmax=4)
-                axes[i, 1].set_title('Ground Truth (Consensus)')
-                axes[i, 1].axis('off')
-                
-                axes[i, 2].imshow(pred_mask, cmap='viridis', vmin=0, vmax=4)
-                axes[i, 2].set_title('Model Prediction')
-                axes[i, 2].axis('off')
-
-                tissue = (gt_mask > 0).astype(np.float32)
-                avg_u_tissue = (uncertainty * tissue).sum() / max(tissue.sum(), 1)
-                axes[i, 3].set_title(f'Uncertainty (Avg tissue: {avg_u_tissue:.4f})')
-                axes[i, 3].axis('off')
-                im = axes[i, 3].imshow(uncertainty, cmap='inferno')
-                fig.colorbar(im, ax=axes[i, 3])
-
-            patches = [mpatches.Patch(color=plt.get_cmap('viridis')(k/4), label=name) for k, name in enumerate(CLASS_NAMES)]
-            fig.legend(handles=patches, bbox_to_anchor=(0.5, 0.01), loc='lower center', ncol=len(CLASS_NAMES))
+        for i, (sample_idx, pred_mask, uncertainty) in enumerate(zip(sample_indices, pred_masks, uncertainty_maps_np)):
+            gt_mask = torch.mode(torch.from_numpy(masks_np[i]), dim=0).values.numpy()
             
-            final_save_path = None
-            if save_path:
-                case_str = case.lower().replace(" ", "_")
-                final_save_path = save_path.with_name(f"{save_path.stem}_{case_str}{save_path.suffix}")
-            plt.tight_layout(rect=[0, 0.05, 1, 0.95])
-            save_or_show(fig, final_save_path, display_in_notebook=display_in_notebook)
+            axes[i, 0].imshow(images_np[i])
+            axes[i, 0].set_title(f'Input (Sample {sample_idx})')
+            axes[i, 0].axis('off')
             
+            axes[i, 1].imshow(gt_mask, cmap='viridis', vmin=0, vmax=4)
+            axes[i, 1].set_title('Ground Truth (Consensus)')
+            axes[i, 1].axis('off')
+            
+            axes[i, 2].imshow(pred_mask, cmap='viridis', vmin=0, vmax=4)
+            axes[i, 2].set_title('Model Prediction')
+            axes[i, 2].axis('off')
+
+            tissue = (gt_mask > 0).astype(np.float32)
+            avg_u_tissue = (uncertainty * tissue).sum() / max(tissue.sum(), 1)
+            axes[i, 3].set_title(f'Uncertainty (Avg: {avg_u_tissue:.4f})')
+            axes[i, 3].axis('off')
+            im = axes[i, 3].imshow(uncertainty, cmap='inferno')
+            fig.colorbar(im, ax=axes[i, 3])
+
+        patches = [mpatches.Patch(color=plt.get_cmap('viridis')(k/4), label=name) for k, name in enumerate(CLASS_NAMES)]
+        fig.legend(handles=patches, bbox_to_anchor=(0.5, 0.01), loc='lower center', ncol=len(CLASS_NAMES))
+        
+        plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+        save_or_show(fig, save_path, display_in_notebook=display_in_notebook)
+        
 def visualise_disagreement_and_predictions(experiment_name: str, output_dir: Path, num_samples: int = 3, save_dir: Optional[Path] = None, display_in_notebook: bool = False):
     model, _, dataset_path, device, config = _get_model_and_data(experiment_name, output_dir)
     if model is None: print(f"Model for '{experiment_name}' not found."); return

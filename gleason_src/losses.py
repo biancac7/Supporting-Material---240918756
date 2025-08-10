@@ -23,14 +23,13 @@ class WeightedCrossEntropyLoss(nn.Module):
         self.register_buffer('weights', torch.as_tensor(class_weights, dtype=torch.float32))
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        match logits.ndim:
-            case 4:
-                log_probs = F.log_softmax(logits, dim=1)
-                return -(targets * log_probs * self.weights.view(1, -1, 1, 1)).sum(dim=1)
-            case 2:
-                return F.cross_entropy(logits, targets, weight=self.weights, reduction='none')
-            case _:
-                return torch.tensor(0.0, device=logits.device)
+        if logits.ndim == 4:
+            log_probs = F.log_softmax(logits, dim=1)
+            return -(targets * log_probs * self.weights.view(1, -1, 1, 1)).sum(dim=1)
+        elif logits.ndim == 2:
+            return F.cross_entropy(logits, targets, weight=self.weights, reduction='none')
+        else:
+            return torch.tensor(0.0, device=logits.device)
 
 @register_loss('focal')
 class FocalLoss(nn.Module):
@@ -40,25 +39,24 @@ class FocalLoss(nn.Module):
         self.register_buffer('alpha', torch.as_tensor(class_weights, dtype=torch.float32))
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        match logits.ndim:
-            case 4:
-                probs = F.softmax(logits, dim=1)
-                log_probs = torch.log(probs + 1e-8)
-                p_t = (targets * probs).sum(dim=1)
-                focal_weight = (1.0 - p_t).pow(self.gamma)
-                alpha_expanded = self.alpha.view(1, -1, 1, 1)
-                ce_loss = -(targets * log_probs * alpha_expanded).sum(dim=1)
-                return focal_weight * ce_loss
-            case 2:
-                B = logits.shape[0]
-                log_probs = F.log_softmax(logits, dim=1)
-                log_p_t = log_probs[torch.arange(B), targets]
-                p_t = log_p_t.exp()
-                alpha_t = self.alpha[targets]
-                focal_loss = -alpha_t * (1 - p_t).pow(self.gamma) * log_p_t
-                return focal_loss
-            case _:
-                return torch.tensor(0.0, device=logits.device)
+        if logits.ndim == 4:
+            probs = F.softmax(logits, dim=1)
+            log_probs = torch.log(probs + 1e-8)
+            p_t = (targets * probs).sum(dim=1)
+            focal_weight = (1.0 - p_t).pow(self.gamma)
+            alpha_expanded = self.alpha.view(1, -1, 1, 1)
+            ce_loss = -(targets * log_probs * alpha_expanded).sum(dim=1)
+            return focal_weight * ce_loss
+        elif logits.ndim == 2:
+            B = logits.shape[0]
+            log_probs = F.log_softmax(logits, dim=1)
+            log_p_t = log_probs[torch.arange(B), targets]
+            p_t = log_p_t.exp()
+            alpha_t = self.alpha[targets]
+            focal_loss = -alpha_t * (1 - p_t).pow(self.gamma) * log_p_t
+            return focal_loss
+        else:
+            return torch.tensor(0.0, device=logits.device)
 
 @register_loss('emd')
 class EMDLoss(nn.Module):

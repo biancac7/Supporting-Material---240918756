@@ -63,8 +63,7 @@ Code/
 |   │   ├── pathologist_agreement.png
 |   │   └── pathologist_reliability.png
 |   |
-|   └── optuna_exports/                                # Contains excel files with all of the Optuna experiment results
-|       ├── gleason_hpo_report_trials.xlsx
+|   └── optuna_exports/                                # Contains the excel file with all of the Optuna experiment results
 |       └── gleason_hpo_report.xlsx
 |
 └── gleason_study.db                                   # The SQLite database used by Optuna to store trial results.
@@ -84,7 +83,7 @@ This notebook only contains the results and visualisations of the project. The f
 
 # Running the experiment notebook directly through Google Colaboratory
 
-1.  Navigate to the this link: https://colab.research.google.com/drive/1aCRLvvrKS-dTm8t0pCZ9ej7clvJ3a3aG?authuser=1#scrollTo=2S9JCjRgMED0. This should open the notebook in Google Colaboratory.
+1.  Navigate to the this link: https://colab.research.google.com/drive/1y41M2PNC1JulzOpa3Su1bXSgK6Yt0KLG#scrollTo=50XZXOd6ULHh. This should open the notebook in Google Colaboratory.
 2.  Select a GPU runtime if available.
 3.  Run all cells.
 
