@@ -84,7 +84,7 @@ This notebook only contains the results and visualisations of the project. The f
 
 # Running the experiment notebook directly through Google Colaboratory
 
-1.  Navigate to the this link: https://drive.google.com/file/d/1aCRLvvrKS-dTm8t0pCZ9ej7clvJ3a3aG/view?usp=sharing. This should open the notebook in Google Colaboratory.
+1.  Navigate to the this link: https://colab.research.google.com/drive/1aCRLvvrKS-dTm8t0pCZ9ej7clvJ3a3aG?authuser=1#scrollTo=2S9JCjRgMED0. This should open the notebook in Google Colaboratory.
 2.  Select a GPU runtime if available.
 3.  Run all cells.
 
