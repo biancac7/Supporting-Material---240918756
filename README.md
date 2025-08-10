@@ -37,13 +37,18 @@ Code/
 │   ├── utils.py                                       # Contains general-purpose helper functions used across the project.
 │   └── visualisations.py                              # Generates all plots and visual reports for analysis and evaluation.
 │
-└── gleason_output/                                    # Root directory for all generated outputs.
-|   ├── datasets/                                      # Contains the processed HDF5 dataset.
+├── gleason_output/                           # Root directory for all generated outputs.
+|   ├── datasets/                             # Contains the processed HDF5 dataset.
 |   │   └── gleason_dataset.h5
 |   │
-|   ├── models/                                        # Contains any saved models.
-|   │   └── best-model-from-search/                    # A folder for the best model from the training runs.
-|   │       ├── evaluation/                            # Results from evaluating the model on the test set.
+|   ├── models/                               # Contains any saved models.
+|   │   └── best-model-from-search/           # A folder for the best model from the training runs.
+|   │       ├── evaluation/                   # Results from evaluating the model on the test set.
+|   |       |   └── disagreement_visuals/
+|   |       |   |   ├── disagreement_sample_41.png
+|   |       |   |   ├── disagreement_sample_17.png
+|   |       |   |   └── disagreement_sample_11.png
+|   |       |   |
 |   │       │   ├── confusion_matrix.png
 |   │       │   ├── detailed_results.pkl
 |   |       |   ├── extremes_gleason_dice_best.png
@@ -55,18 +60,20 @@ Code/
 |   │       │   ├── summary.json
 |   │       │   └── summary.png
 |   │       │
-|   │       ├── best_model.pth                         # The saved model weights.
-|   │       ├── config.json                            # The hyperparameters used for this run.
-|   │       └── training_curves.png                    # Plot of training/validation loss.
+|   │       ├── best_model.pth                # The saved model weights.
+|   │       ├── config.json                   # The hyperparameters used for this run.
+|   │       └── training_curves.png           # Plot of training/validation loss.
 |   │
-|   ├── visualisations/                                # Contains data-level visualisations from preprocessing.
+|   ├── visualisations/                       # Contains data-level visualisations from preprocessing.
 |   │   ├── pathologist_agreement.png
 |   │   └── pathologist_reliability.png
 |   |
-|   └── optuna_exports/                                # Contains the excel file with all of the Optuna experiment results
+|   ├── metadata.json                         # Holds essential metadata about the processed Gleason dataset.
+|   |
+|   └── optuna_exports/                       # Contains the excel file with all of the Optuna experiment results
 |       └── gleason_hpo_report.xlsx
 |
-└── gleason_study.db                                   # The SQLite database used by Optuna to store trial results.
+└── gleason_study.db                          # The SQLite database used by Optuna to store trial results.
 ```
 
 ## How To Run
