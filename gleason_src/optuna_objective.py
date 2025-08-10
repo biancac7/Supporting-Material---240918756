@@ -23,15 +23,16 @@ def suggest_loss_config(trial: optuna.trial.Trial, prefix: str, task_type: str =
         loss_name = trial.suggest_categorical(f'{prefix}_loss_name', ['wce', 'focal'])
     loss_config['name'] = loss_name
 
-    if loss_name == 'focal':
-        loss_config['gamma'] = trial.suggest_float(f'{prefix}_focal_gamma', 2.0, 5.0)
-    elif loss_name == 'emd':
-        loss_config['cost_type'] = trial.suggest_categorical(f'{prefix}_emd_cost_type', ['L1', 'L2'])
-    elif loss_name == 'williams_index':
-        loss_config['epsilon'] = trial.suggest_float(f'{prefix}_williams_epsilon', 1e-12, 1e-8, log=True)
-        loss_config['temperature'] = trial.suggest_float(f'{prefix}_williams_temp', 0.5, 2.0)
-    elif loss_name == 'wce':
-        pass
+    match loss_name:
+        case 'focal':
+            loss_config['gamma'] = trial.suggest_float(f'{prefix}_focal_gamma', 2.0, 5.0)
+        case 'emd':
+            loss_config['cost_type'] = trial.suggest_categorical(f'{prefix}_emd_cost_type', ['L1', 'L2'])
+        case 'williams_index':
+            loss_config['epsilon'] = trial.suggest_float(f'{prefix}_williams_epsilon', 1e-12, 1e-8, log=True)
+            loss_config['temperature'] = trial.suggest_float(f'{prefix}_williams_temp', 0.5, 2.0)
+        case 'wce':
+            pass
 
     weighting_choice = trial.suggest_categorical(f'{prefix}_weighting_scheme', ['none', 'disagreement', 'scaled', 'both'])
 
@@ -51,13 +52,14 @@ def suggest_loss_config(trial: optuna.trial.Trial, prefix: str, task_type: str =
         loss_config['weighting_schemes'].append(scheme)
 
     reducer_type = trial.suggest_categorical(f'{prefix}_reducer', ['mean', 'priority_split'])
-    if reducer_type == 'priority_split':
-        loss_config['reducer'] = {
-            'type': 'priority_split',
-            'priority_weight': trial.suggest_float(f'{prefix}_priority_weight', 0.55, 0.95, step=0.05)
-        }
-    elif reducer_type == 'mean':
-        loss_config['reducer'] = {'type': 'mean'}
+    match reducer_type:
+        case 'priority_split':
+            loss_config['reducer'] = {
+                'type': 'priority_split',
+                'priority_weight': trial.suggest_float(f'{prefix}_priority_weight', 0.55, 0.95, step=0.05)
+            }
+        case 'mean':
+            loss_config['reducer'] = {'type': 'mean'}
 
     return loss_config
 

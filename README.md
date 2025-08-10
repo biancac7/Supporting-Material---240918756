@@ -94,3 +94,5 @@ The notebook will sequentially execute the entire pipeline:
 - **Hyperparameter Optimisation:** It will run an Optuna study to find the best model hyperparameters, storing results in `gleason_output/gleason_study.db` (the study number is set to 0 by default, so it will only load the experiments from the current saved database).
 - **Final Model Training:** It will train the best model configuration found during the search (or use the saved weights if they already exist).
 - **Evaluation:** It will evaluate the final model on the test set and save all results and visualisations to the `gleason_output/models/` directory.
+
+**Troubleshooting Download:** If `gdown` fails, you can download the `gleason_data` and `gleason_output` folders manually from [this Google Drive link](https://drive.google.com/drive/folders/1o4N8B5Sv4uNQr4RyiRyK7W9ZHLPIZ-0B?usp=drive_link).

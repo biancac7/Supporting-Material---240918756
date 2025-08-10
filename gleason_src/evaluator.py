@@ -133,8 +133,14 @@ class ModelEvaluator:
 
                         final_out, uncertainty_map = uncompiled_net.monte_carlo_predict(images_mc, n_samples=n_mc_samples)
 
-                    avg_uncertainty = uncertainty_map.mean(dim=(1, 2)).detach().cpu().tolist()
-                    results['raw']['uncertainty'] = results['raw'].get('uncertainty', []) + avg_uncertainty
+                        avg_uncertainty = uncertainty_map.mean(dim=(1, 2)).detach().cpu().tolist()
+                        results['raw']['uncertainty'] = results['raw'].get('uncertainty', []) + avg_uncertainty
+
+                        tissue_mask  = (batch_gpu['soft_label'].argmax(dim=1) > 0).float()
+                        masked_sum   = (uncertainty_map * tissue_mask).sum(dim=(1, 2))
+                        masked_count = tissue_mask.sum(dim=(1, 2)).clamp(min=1)
+                        avg_uncertainty_tissue = (masked_sum / masked_count).detach().cpu().tolist()
+                        results['raw']['uncertainty_tissue'] = results['raw'].get('uncertainty_tissue', []) + avg_uncertainty_tissue
                 else:
                     final_out = self.model(images)
 
@@ -372,7 +378,7 @@ def evaluate_model(model_path: Path, test_dataset: Dataset, device: torch.device
     try:
         checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     except Exception:
-        checkpoint = torch.load(model_path, map_location=device)
+        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
 
     model_config = checkpoint.get('config', {})
     final_config = ensure_num_classes({**model_config, **config})

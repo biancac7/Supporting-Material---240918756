@@ -12,6 +12,7 @@ import h5py
 import torch
 import torch.nn.functional as F
 import matplotlib.patches as mpatches
+from tqdm import tqdm
 
 from .preprocessing import CLASS_NAMES
 from .utils import save_or_show, _format_pathologist_name
@@ -199,7 +200,6 @@ def _get_model_and_data(experiment_name: str, output_dir: Path):
 
     config = checkpoint.get('config', {})
     if not config:
-        print("Warning: Model config not found in checkpoint.")
         return None, None, None, None, None
 
     model = build_model(
@@ -232,7 +232,7 @@ def _sort_and_load(dset, unsorted_indices):
 
     return output_array
 
-def visualise_prediction_extremes(experiment_name: str, output_dir: Path, num_samples: int = 3, metric: Optional[str] = None, display_in_notebook: bool = False):
+def visualise_prediction_extremes(experiment_name: str, output_dir: Path, num_samples: int = 3, metric: Optional[str] = None, save_path: Optional[Path] = None, display_in_notebook: bool = False):
     eval_path = output_dir / 'models' / experiment_name / 'evaluation' / 'detailed_results.pkl'
     if not eval_path.exists(): print(f"Evaluation results for '{experiment_name}' not found."); return
     with open(eval_path, 'rb') as f: detailed_results = pickle.load(f)
@@ -257,7 +257,6 @@ def visualise_prediction_extremes(experiment_name: str, output_dir: Path, num_sa
     valid_scores = scores[non_bg_mask]
 
     if len(valid_scores) < num_samples * 2:
-        print(f"Not enough non-background samples to visualize: found {len(valid_scores)}")
         return
 
     img_size = config.get('img_size', 512)
@@ -299,85 +298,150 @@ def visualise_prediction_extremes(experiment_name: str, output_dir: Path, num_sa
 
             patches = [mpatches.Patch(color=plt.get_cmap('viridis')(i/4), label=name) for i, name in enumerate(CLASS_NAMES)]
             fig.legend(handles=patches, bbox_to_anchor=(0.5, 0.01), loc='lower center', ncol=len(CLASS_NAMES))
-            plt.tight_layout(rect=[0, 0.05, 1, 0.95]); save_or_show(fig, display_in_notebook=display_in_notebook)
 
-def visualise_uncertainty_extremes(experiment_name: str, output_dir: Path, num_samples: int = 3, display_in_notebook: bool = False):
-    eval_path = output_dir / 'models' / experiment_name / 'evaluation' / 'detailed_results.pkl'
-    if not eval_path.exists(): print(f"Evaluation results for '{experiment_name}' not found."); return
-    with open(eval_path, 'rb') as f: detailed_results = pickle.load(f)
+            final_save_path = None
+            if save_path:
+                final_save_path = save_path.with_name(f"{save_path.stem}_{case.lower()}{save_path.suffix}")
+            plt.tight_layout(rect=[0, 0.05, 1, 0.95]); save_or_show(fig, final_save_path, display_in_notebook=display_in_notebook)
 
-    uncertainty_scores_from_file = detailed_results['raw'].get('uncertainty')
-    if uncertainty_scores_from_file is None:
-        print("Uncertainty scores not found in results file. Cannot determine best/worst samples.")
+def visualise_uncertainty_extremes(experiment_name: str, output_dir: Path, num_samples: int = 3, save_path: Optional[Path] = None, display_in_notebook: bool = False):
+    model, uncompiled_net, dataset_path, device, config = _get_model_and_data(experiment_name, output_dir)
+    if model is None: 
+        print(f"Model for '{experiment_name}' not found.")
         return
 
-    model, uncompiled_net, dataset_path, device, config = _get_model_and_data(experiment_name, output_dir)
-    if model is None: print(f"Model for '{experiment_name}' not found."); return
+    img_size = config.get('img_size', 512)
+    val_augmenter = KorniaValidationAugmentation(img_size).to(device)
 
     with h5py.File(dataset_path, 'r') as f:
         individual_masks = f['test']['individual_masks'][:]
         consensus_masks = torch.mode(torch.from_numpy(individual_masks), dim=1).values.numpy()
         non_bg_mask = np.any(consensus_masks > 0, axis=(1, 2))
 
-    original_indices = np.arange(len(uncertainty_scores_from_file))
-    valid_indices_original = original_indices[non_bg_mask]
-    valid_scores = np.array(uncertainty_scores_from_file)[non_bg_mask]
-
-    if len(valid_scores) < num_samples * 2:
-        print(f"Not enough non-background samples to visualize uncertainty: found {len(valid_scores)}")
+    valid_indices = np.where(non_bg_mask)[0]
+    
+    if len(valid_indices) < num_samples * 2:
+        print(f"Not enough tissue samples found: {len(valid_indices)}")
         return
 
-    img_size = config.get('img_size', 512)
-    val_augmenter = KorniaValidationAugmentation(img_size).to(device)
-
-    sorted_filtered_indices = np.argsort(valid_scores)
-    indices_to_show_filtered = {
-        "Most Certain": sorted_filtered_indices[:num_samples],
-        "Most Uncertain": sorted_filtered_indices[-num_samples:][::-1]
-    }
+    print(f"Computing uncertainty for {len(valid_indices)} tissue samples...")
+    
+    uncertainty_scores = []
+    batch_size = 8 
+    
+    with h5py.File(dataset_path, 'r') as f:
+        test_group = f['test']
+        
+        for i in tqdm(range(0, len(valid_indices), batch_size), desc="Computing uncertainty"):
+            batch_indices = valid_indices[i:i + batch_size]
+            images_np = _sort_and_load(test_group['images'], batch_indices)
+            batch_raw = torch.from_numpy(images_np).to(device)
+            
+            with torch.no_grad():
+                batch_imgs = val_augmenter(batch_raw)
+                batch_imgs_norm = model.norm(batch_imgs)
+                mc_n = int(config.get('mc_samples', 10))
+                _, uncertainty_map = uncompiled_net.monte_carlo_predict(batch_imgs_norm, n_samples=mc_n)
+                
+                for j, idx in enumerate(batch_indices):
+                    consensus_mask = consensus_masks[idx]
+                    tissue_mask = (consensus_mask > 0).astype(np.float32)
+                    uncertainty_np = uncertainty_map[j].cpu().numpy()
+                    
+                    if tissue_mask.sum() > 0:
+                        avg_uncertainty = (uncertainty_np * tissue_mask).sum() / tissue_mask.sum()
+                    else:
+                        avg_uncertainty = 0.0
+                    
+                    uncertainty_scores.append(avg_uncertainty)
+    
+    uncertainty_scores = np.array(uncertainty_scores)
+    
+    print(f"Uncertainty statistics:")
+    print(f"  Min: {uncertainty_scores.min():.6f}")
+    print(f"  Max: {uncertainty_scores.max():.6f}")
+    print(f"  Mean: {uncertainty_scores.mean():.6f}")
+    print(f"  Median: {np.median(uncertainty_scores):.6f}")
+    print(f"  25th percentile: {np.percentile(uncertainty_scores, 25):.6f}")
+    print(f"  75th percentile: {np.percentile(uncertainty_scores, 75):.6f}")
+    
+    low_threshold = np.percentile(uncertainty_scores, 20)  
+    high_threshold = np.percentile(uncertainty_scores, 80) 
+    
+    print(f"  Using thresholds: certain < {low_threshold:.6f}, uncertain > {high_threshold:.6f}")
+    
+    certain_mask = uncertainty_scores < low_threshold
+    uncertain_mask = uncertainty_scores > high_threshold
+    
+    certain_filtered_idx = np.where(certain_mask)[0]
+    uncertain_filtered_idx = np.where(uncertain_mask)[0]
+    
+    print(f"  Found {len(certain_filtered_idx)} certain samples, {len(uncertain_filtered_idx)} uncertain samples")
+    
+    certain_to_show = certain_filtered_idx[:num_samples] if len(certain_filtered_idx) >= num_samples else certain_filtered_idx
+    uncertain_to_show = uncertain_filtered_idx[:num_samples] if len(uncertain_filtered_idx) >= num_samples else uncertain_filtered_idx
+    
     indices_to_show = {
-        "Most Certain": valid_indices_original[indices_to_show_filtered["Most Certain"]],
-        "Most Uncertain": valid_indices_original[indices_to_show_filtered["Most Uncertain"]]
+        "Most Certain": valid_indices[certain_to_show],
+        "Most Uncertain": valid_indices[uncertain_to_show]
     }
 
     with h5py.File(dataset_path, 'r') as f:
         test_group = f['test']
-        for case, unsorted_indices in indices_to_show.items():
-            if len(unsorted_indices) == 0: continue
+        for case, sample_indices in indices_to_show.items():
+            if len(sample_indices) == 0: 
+                print(f"No samples found for {case} category")
+                continue
 
-            images_np = _sort_and_load(test_group['images'], unsorted_indices)
-            masks_np = _sort_and_load(test_group['individual_masks'], unsorted_indices)
+            images_np = _sort_and_load(test_group['images'], sample_indices)
+            masks_np = _sort_and_load(test_group['individual_masks'], sample_indices)
             batch_raw = torch.from_numpy(images_np).to(device)
 
             with torch.no_grad():
-                 batch_imgs = val_augmenter(batch_raw)
-                 batch_imgs_norm = model.norm(batch_imgs)
-                 mean_pred, uncertainty_map = uncompiled_net.monte_carlo_predict(batch_imgs_norm, n_samples=20)
-                 pred_masks = mean_pred.argmax(dim=1).cpu().numpy()
-                 uncertainty_maps_np = uncertainty_map.cpu().numpy()
+                batch_imgs = val_augmenter(batch_raw)
+                batch_imgs_norm = model.norm(batch_imgs)
+                mc_n = int(config.get('mc_samples', 10))
+                mean_pred, uncertainty_map = uncompiled_net.monte_carlo_predict(batch_imgs_norm, n_samples=mc_n)
+                pred_masks = mean_pred.argmax(dim=1).cpu().numpy()
+                uncertainty_maps_np = uncertainty_map.cpu().numpy()
 
-                 current_uncertainty_avgs = uncertainty_maps_np.mean(axis=(1, 2))
-
-            fig, axes = plt.subplots(num_samples, 4, figsize=(16, 4 * num_samples), squeeze=False)
+            actual_num_samples = len(sample_indices)
+            fig, axes = plt.subplots(actual_num_samples, 4, figsize=(16, 4 * actual_num_samples), squeeze=False)
             fig.suptitle(f"{case} Samples by Predictive Uncertainty", fontsize=16)
 
-            for i, (sample_idx, pred_mask, uncertainty) in enumerate(zip(unsorted_indices, pred_masks, uncertainty_maps_np)):
+            for i, (sample_idx, pred_mask, uncertainty) in enumerate(zip(sample_indices, pred_masks, uncertainty_maps_np)):
                 gt_mask = torch.mode(torch.from_numpy(masks_np[i]), dim=0).values.numpy()
-                axes[i, 0].imshow(images_np[i]); axes[i, 0].set_title(f'Input (Sample {sample_idx})'); axes[i, 0].axis('off')
-                axes[i, 1].imshow(gt_mask, cmap='viridis', vmin=0, vmax=4); axes[i, 1].set_title('Ground Truth (Consensus)'); axes[i, 1].axis('off')
-                axes[i, 2].imshow(pred_mask, cmap='viridis', vmin=0, vmax=4); axes[i, 2].set_title('Mean Prediction'); axes[i, 2].axis('off')
+                
+                axes[i, 0].imshow(images_np[i])
+                axes[i, 0].set_title(f'Input (Sample {sample_idx})')
+                axes[i, 0].axis('off')
+                
+                axes[i, 1].imshow(gt_mask, cmap='viridis', vmin=0, vmax=4)
+                axes[i, 1].set_title('Ground Truth (Consensus)')
+                axes[i, 1].axis('off')
+                
+                axes[i, 2].imshow(pred_mask, cmap='viridis', vmin=0, vmax=4)
+                axes[i, 2].set_title('Model Prediction')
+                axes[i, 2].axis('off')
 
-                avg_score_for_title = current_uncertainty_avgs[i]
-                im = axes[i, 3].imshow(uncertainty, cmap='magma');
-                axes[i, 3].set_title(f'Uncertainty (Avg: {avg_score_for_title:.4f})');
+                tissue = (gt_mask > 0).astype(np.float32)
+                avg_u_tissue = (uncertainty * tissue).sum() / max(tissue.sum(), 1)
+                axes[i, 3].set_title(f'Uncertainty (Avg tissue: {avg_u_tissue:.4f})')
                 axes[i, 3].axis('off')
+                im = axes[i, 3].imshow(uncertainty, cmap='inferno')
                 fig.colorbar(im, ax=axes[i, 3])
 
             patches = [mpatches.Patch(color=plt.get_cmap('viridis')(k/4), label=name) for k, name in enumerate(CLASS_NAMES)]
             fig.legend(handles=patches, bbox_to_anchor=(0.5, 0.01), loc='lower center', ncol=len(CLASS_NAMES))
-            plt.tight_layout(rect=[0, 0.05, 1, 0.95]); save_or_show(fig, display_in_notebook=display_in_notebook)
-
-def visualise_disagreement_and_predictions(experiment_name: str, output_dir: Path, num_samples: int = 3, display_in_notebook: bool = False):
+            
+            final_save_path = None
+            if save_path:
+                case_str = case.lower().replace(" ", "_")
+                final_save_path = save_path.with_name(f"{save_path.stem}_{case_str}{save_path.suffix}")
+            plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+            save_or_show(fig, final_save_path, display_in_notebook=display_in_notebook)
+            
+def visualise_disagreement_and_predictions(experiment_name: str, output_dir: Path, num_samples: int = 3, save_dir: Optional[Path] = None, display_in_notebook: bool = False):
     model, _, dataset_path, device, config = _get_model_and_data(experiment_name, output_dir)
     if model is None: print(f"Model for '{experiment_name}' not found."); return
 
@@ -399,7 +463,6 @@ def visualise_disagreement_and_predictions(experiment_name: str, output_dir: Pat
         valid_scores = disagreement_scores[non_bg_mask]
 
         if len(valid_scores) < num_samples:
-            print(f"Not enough non-background samples with disagreement to visualize: found {len(valid_scores)}")
             return
 
         p_names = json.loads(test_group.attrs.get('pathologists', '[]'))
@@ -441,4 +504,8 @@ def visualise_disagreement_and_predictions(experiment_name: str, output_dir: Pat
 
             patches = [mpatches.Patch(color=plt.get_cmap('viridis')(k/4), label=name) for k, name in enumerate(CLASS_NAMES)]
             fig.legend(handles=patches, bbox_to_anchor=(0.5, 0.01), loc='lower center', ncol=len(CLASS_NAMES))
-            plt.tight_layout(rect=[0, 0.05, 1, 0.95]); save_or_show(fig, display_in_notebook=display_in_notebook)
+            
+            final_save_path = None
+            if save_dir:
+                final_save_path = save_dir / f"disagreement_sample_{sample_idx}.png"
+            plt.tight_layout(rect=[0, 0.05, 1, 0.95]); save_or_show(fig, final_save_path, display_in_notebook=display_in_notebook)

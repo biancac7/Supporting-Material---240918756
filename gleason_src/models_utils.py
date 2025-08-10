@@ -71,7 +71,7 @@ def build_model(
     elif mode != "uncompiled":
         raise ValueError(f"Invalid mode '{mode}'. Must be 'compiled' or 'uncompiled'.")
 
-    wrapped = WrappedPSP(base, img_size=img_size).to(memory_format=torch.channels_last)
+    wrapped = WrappedPSP(base, img_size=img_size).to(memory_format=torch.channels_last).cuda()
     return wrapped
 
 def ensure_num_classes(config: dict) -> dict:

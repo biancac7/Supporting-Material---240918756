@@ -5,7 +5,7 @@ import segmentation_models_pytorch as smp
 import kornia
 import kornia.augmentation as Kau
 import numpy as np
-from typing import Tuple, Optional 
+from typing import Tuple
 
 class PSPNet(nn.Module):
     def __init__(self, num_classes=5, backbone='resnet50', dropout_rate=0.1, **kwargs):
@@ -23,7 +23,7 @@ class PSPNet(nn.Module):
             self.model.encoder.set_grad_checkpointing(False)
 
     @torch.amp.autocast('cuda', enabled=torch.cuda.is_available())
-    def forward(self, x: torch.Tensor, aux_weight: float = 0.4) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    def forward(self, x: torch.Tensor, aux_weight: float = 0.4) -> Tuple[torch.Tensor, torch.Tensor | None]:
         if aux_weight > 1e-6:
             return self.model(x)
         else:
