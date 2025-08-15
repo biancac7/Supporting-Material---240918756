@@ -93,7 +93,7 @@ This notebook only contains the results and visualisations of the project. The f
 
 # Running the experiment notebook directly through Google Colaboratory
 
-1.  Navigate to the this link: https://colab.research.google.com/drive/1y41M2PNC1JulzOpa3Su1bXSgK6Yt0KLG#scrollTo=50XZXOd6ULHh. This should open the notebook in Google Colaboratory.
+1.  Navigate to the this link: [Colab Notebook](https://colab.research.google.com/drive/1zlvc8KP8_be_1R83oWNvfeZ9GKuFfiMY#scrollTo=HU2OQfD2bjkp). This should open the notebook in Google Colaboratory.
 2.  Select a GPU runtime if available.
 3.  Run all cells.
 
@@ -104,4 +104,4 @@ The notebook will sequentially execute the entire pipeline:
 - **Final Model Training:** It will train the best model configuration found during the search (or use the saved weights if they already exist).
 - **Evaluation:** It will evaluate the final model on the test set and save all results and visualisations to the `gleason_output/models/` directory.
 
-**Troubleshooting Download:** If `gdown` fails, you can download the `gleason_data` and `gleason_output` folders manually from [this Google Drive link](https://drive.google.com/drive/folders/1o4N8B5Sv4uNQr4RyiRyK7W9ZHLPIZ-0B?usp=drive_link).
+**Troubleshooting Download:** If `gdown` fails, you can download the `gleason_data` and `gleason_output` folders manually from [this Google Drive link](https://drive.google.com/drive/folders/14LyfDzyyzgYvUSVBKcR7Dab2wt5m0zLO?usp=drive_link).
