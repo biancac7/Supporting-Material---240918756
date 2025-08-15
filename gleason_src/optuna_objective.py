@@ -18,7 +18,7 @@ def suggest_loss_config(trial: optuna.trial.Trial, prefix: str, task_type: str =
     loss_config: Dict[str, any] = {'weighting_schemes': []}
 
     if task_type == 'segmentation':
-        loss_name = trial.suggest_categorical(f'{prefix}_loss_name', ['emd', 'emd', 'focal', 'wce'])
+        loss_name = trial.suggest_categorical(f'{prefix}_loss_name', ['emd', 'focal', 'wce'])
     else:
         loss_name = trial.suggest_categorical(f'{prefix}_loss_name', ['wce', 'focal'])
     loss_config['name'] = loss_name
@@ -29,35 +29,38 @@ def suggest_loss_config(trial: optuna.trial.Trial, prefix: str, task_type: str =
         loss_config['cost_type'] = trial.suggest_categorical(f'{prefix}_emd_cost_type', ['L1', 'L2'])
     elif loss_name == 'williams_index':
         loss_config['epsilon'] = trial.suggest_float(f'{prefix}_williams_epsilon', 1e-12, 1e-8, log=True)
-        loss_config['temperature'] = trial.suggest_float(f'{prefix}_williams_temp', 0.5, 2.0)
     elif loss_name == 'wce':
         pass
 
-    weighting_choice = trial.suggest_categorical(f'{prefix}_weighting_scheme', ['none', 'disagreement', 'scaled', 'both'])
-
-    if weighting_choice in ['disagreement', 'both']:
-        scheme = {
-            'type': 'disagreement',
-            'metric': trial.suggest_categorical(f'{prefix}_disagreement_metric', ['std', 'mad']),
-            'epsilon': trial.suggest_float(f'{prefix}_disagreement_epsilon', 1e-7, 1e-5, log=True)
-        }
-        loss_config['weighting_schemes'].append(scheme)
-
-    if weighting_choice in ['scaled', 'both']:
-        scheme = {
-            'type': 'scaled',
-            'priority_scale_factor': trial.suggest_float(f'{prefix}_scale_factor', 1.5, 5.0)
-        }
-        loss_config['weighting_schemes'].append(scheme)
-
-    reducer_type = trial.suggest_categorical(f'{prefix}_reducer', ['mean', 'priority_split'])
-    if reducer_type == 'priority_split':
-        loss_config['reducer'] = {
-            'type': 'priority_split',
-            'priority_weight': trial.suggest_float(f'{prefix}_priority_weight', 0.55, 0.95, step=0.05)
-        }
-    elif reducer_type == 'mean':
+    if loss_name == 'williams_index':
+        loss_config['weighting_schemes'] = []
         loss_config['reducer'] = {'type': 'mean'}
+    else:
+        weighting_choice = trial.suggest_categorical(f'{prefix}_weighting_scheme', ['none', 'disagreement', 'scaled', 'both'])
+
+        if weighting_choice in ['disagreement', 'both']:
+            scheme = {
+                'type': 'disagreement',
+                'metric': trial.suggest_categorical(f'{prefix}_disagreement_metric', ['var', 'mad']),
+                'epsilon': trial.suggest_float(f'{prefix}_disagreement_epsilon', 1e-7, 1e-5, log=True)
+            }
+            loss_config['weighting_schemes'].append(scheme)
+
+        if weighting_choice in ['scaled', 'both']:
+            scheme = {
+                'type': 'scaled',
+                'priority_scale_factor': trial.suggest_float(f'{prefix}_scale_factor', 1.5, 5.0)
+            }
+            loss_config['weighting_schemes'].append(scheme)
+
+        reducer_type = trial.suggest_categorical(f'{prefix}_reducer', ['mean', 'priority_split'])
+        if reducer_type == 'priority_split':
+            loss_config['reducer'] = {
+                'type': 'priority_split',
+                'priority_weight': trial.suggest_float(f'{prefix}_priority_weight', 0.55, 0.95, step=0.05)
+            }
+        elif reducer_type == 'mean':
+            loss_config['reducer'] = {'type': 'mean'}
 
     return loss_config
 

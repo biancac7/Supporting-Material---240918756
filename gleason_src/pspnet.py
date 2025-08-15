@@ -5,7 +5,7 @@ import segmentation_models_pytorch as smp
 import kornia
 import kornia.augmentation as Kau
 import numpy as np
-from typing import Tuple, Optional 
+from typing import Tuple, Optional
 
 class PSPNet(nn.Module):
     def __init__(self, num_classes=5, backbone='resnet50', dropout_rate=0.1, **kwargs):

@@ -99,32 +99,31 @@ class WilliamsIndexLoss(nn.Module):
             return torch.tensor(0.0, device=logits.device, requires_grad=True)
 
         individual_masks_one_hot = F.one_hot(individual_masks.long().clamp(0, C - 1), num_classes=C).float()
-        individual_masks_one_hot = individual_masks_one_hot.permute(0, 1, 4, 2, 3)
+        individual_masks_one_hot = individual_masks_one_hot.permute(0, 1, 4, 2, 3) 
 
         pred_probs_expanded = pred_probs.unsqueeze(1)
 
-        model_expert_errors_per_expert = torch.abs(pred_probs_expanded - individual_masks_one_hot).mean(dim=(0, 2, 3, 4))
-        avg_model_expert_error = model_expert_errors_per_expert.mean()
+        model_expert_disagreements = torch.abs(pred_probs_expanded - individual_masks_one_hot).mean(dim=(2, 3, 4))
+        
+        avg_inverse_model_expert = (1.0 / (model_expert_disagreements + self.epsilon)).mean()
 
-        expert_expert_errors = []
+        inverse_expert_expert_disagreements = []
         for p1, p2 in combinations(range(P), 2):
-            expert1_probs = individual_masks_one_hot[:, p1]
-            expert2_probs = individual_masks_one_hot[:, p2]
+            expert1_probs = individual_masks_one_hot[:, p1] 
+            expert2_probs = individual_masks_one_hot[:, p2] 
+            
+            disagreement_per_sample = torch.abs(expert1_probs - expert2_probs).mean(dim=(1, 2, 3)) 
+            
+            inverse_expert_expert_disagreements.append(1.0 / (disagreement_per_sample + self.epsilon))
 
-            error = torch.abs(expert1_probs - expert2_probs).mean()
-            expert_expert_errors.append(error)
-
-        if not expert_expert_errors:
+        if not inverse_expert_expert_disagreements:
             return torch.tensor(0.0, device=logits.device, requires_grad=True)
 
-        avg_expert_expert_error = torch.stack(expert_expert_errors).mean()
+        avg_inverse_expert_expert = torch.cat(inverse_expert_expert_disagreements).mean()
+        
+        williams_index = avg_inverse_model_expert / (avg_inverse_expert_expert + self.epsilon)
 
-        inverse_model_expert = 1.0 / (avg_model_expert_error + self.epsilon)
-        inverse_expert_expert = 1.0 / (avg_expert_expert_error + self.epsilon)
-
-        williams_index = inverse_model_expert / (inverse_expert_expert + self.epsilon)
-
-        return -torch.log(williams_index + self.epsilon)
+        return -williams_index
 
 class DisagreementWeighter(nn.Module):
     def __init__(self, metric: str, epsilon: float = 1e-6, **kwargs: Any):

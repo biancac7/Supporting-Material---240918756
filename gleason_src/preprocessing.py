@@ -161,7 +161,7 @@ def save_dataset_hdf5(samples: List, weights: Dict, out_path: Path, p_names: Lis
                      ('images', (n_s, *size, 3), 'uint8', img_chunks),
                      ('soft_labels', (n_s, n_c, *size), 'float32', lbl_chunks),
                      ('individual_masks', (n_s, n_p, *size), 'uint8', ind_chunks),
-                     ('disagreement_map_std', (n_s, 1, *size), 'float32', dis_chunks),
+                     ('disagreement_map_var', (n_s, 1, *size), 'float32', dis_chunks),
                      ('disagreement_map_mad', (n_s, 1, *size), 'float32', dis_chunks),
                      ('inter_expert_error_map', (n_s, 1, *size), 'float32', dis_chunks),
                      ('inter_expert_emd_map', (n_s, 1, *size), 'float32', dis_chunks),
@@ -171,7 +171,7 @@ def save_dataset_hdf5(samples: List, weights: Dict, out_path: Path, p_names: Lis
             batch = samples[i:i + BATCH_SIZE]; slc = slice(i, i + len(batch))
             dsets['images'][slc] = loader.load_batch([s['image_path'] for s in batch], size)
 
-            s_lbls, i_msks, dis_stds, dis_mads, exp_errs, exp_emds = [], [], [], [], [], []
+            s_lbls, i_msks, dis_vars, dis_mads, exp_errs, exp_emds = [], [], [], [], [], []
             for sample in batch:
                 p_present, masks_loaded = [], []
                 all_masks = np.zeros((n_p, *size), dtype=np.uint8)
@@ -188,9 +188,9 @@ def save_dataset_hdf5(samples: List, weights: Dict, out_path: Path, p_names: Lis
                     s_lbls.append(create_soft_labels_vectorised(np.stack(masks_loaded), weights, p_present))
                     mask_stack = np.stack(masks_loaded)
 
-                    std_map = np.std(mask_stack, axis=0)
-                    max_std = np.sqrt(((n_c - 1)**2) / 4)
-                    dis_stds.append((std_map / (max_std + 1e-8))[np.newaxis, :, :])
+                    var_map = np.var(mask_stack, axis=0)
+                    max_var = ((n_c - 1)**2) / 4
+                    dis_vars.append((var_map / (max_var + 1e-8))[np.newaxis, :, :])
 
                     median = np.median(mask_stack, axis=0)
                     mad_map = np.mean(np.abs(mask_stack - median), axis=0)
@@ -212,7 +212,7 @@ def save_dataset_hdf5(samples: List, weights: Dict, out_path: Path, p_names: Lis
 
                 else:
                     s_lbls.append(np.eye(n_c)[0][:, None, None] if not masks_loaded else create_soft_labels_vectorised(np.stack(masks_loaded), weights, p_present))
-                    dis_stds.append(np.zeros((1, *size), dtype=np.float32))
+                    dis_vars.append(np.zeros((1, *size), dtype=np.float32))
                     dis_mads.append(np.zeros((1, *size), dtype=np.float32))
                     exp_errs.append(np.zeros((1, *size), dtype=np.float32))
                     exp_emds.append(np.zeros((1, *size), dtype=np.float32))
@@ -221,7 +221,7 @@ def save_dataset_hdf5(samples: List, weights: Dict, out_path: Path, p_names: Lis
 
             dsets['soft_labels'][slc] = np.stack(s_lbls)
             dsets['individual_masks'][slc] = np.stack(i_msks)
-            dsets['disagreement_map_std'][slc] = np.stack(dis_stds)
+            dsets['disagreement_map_var'][slc] = np.stack(dis_vars)
             dsets['disagreement_map_mad'][slc] = np.stack(dis_mads)
             dsets['inter_expert_error_map'][slc] = np.stack(exp_errs)
             dsets['inter_expert_emd_map'][slc] = np.stack(exp_emds)

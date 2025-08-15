@@ -51,12 +51,15 @@ Code/
 |   |       |   |
 |   │       │   ├── confusion_matrix.png
 |   │       │   ├── detailed_results.pkl
-|   |       |   ├── extremes_gleason_dice_best.png
+|   │       │   ├── best_williams_predictions_sample_18
+|   │       │   ├── best_williams_predictions_sample_22
+|   │       │   ├── best_williams_predictions_sample_34
+|   │       │   ├── best_williams_predictions_sample_37
+|   │       │   ├── best_williams_predictions_sample_39
+|   │       │   ├── best_williams_predictions_sample_4
 |   |       |   ├── extremes_gleason_dice_worst.png
-|   |       |   ├── extremes_williams_index_best.png
 |   |       |   ├── extremes_williams_index_worst.png
-|   |       |   ├── extremes_uncertainty_most_certain.png
-|   |       |   ├── extremes_uncertainty_most_uncertain.png
+|   |       |   ├── extremes_uncertainty.png
 |   │       │   ├── summary.json
 |   │       │   └── summary.png
 |   │       │
@@ -71,7 +74,7 @@ Code/
 |   ├── metadata.json                         # Holds essential metadata about the processed Gleason dataset.
 |   |
 |   └── optuna_exports/                       # Contains the excel file with all of the Optuna experiment results
-|       └── gleason_hpo_report.xlsx
+|       └── gleason_hpo_trials.xlsx
 |
 └── gleason_study.db                          # The SQLite database used by Optuna to store trial results.
 ```

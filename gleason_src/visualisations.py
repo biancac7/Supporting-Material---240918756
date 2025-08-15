@@ -477,7 +477,7 @@ def visualise_disagreement_and_predictions(experiment_name: str, output_dir: Pat
             if not individual_masks: continue
 
             disagreement_map = disagreement_maps[i].squeeze()
-            heatmap = cv2.applyColorMap((disagreement_map / (disagreement_map.max() + 1e-8) * 255).astype(np.uint8), cv2.COLORMAP_VIRIDIS)
+            heatmap = cv2.applyColorMap((disagreement_map / (disagreement_map.max() + 1e-8) * 255).astype(np.uint8), cv2.COLORMAP_DEEPGREEN)
             highlighted_img = cv2.addWeighted(img_np, 0.6, cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB), 0.4, 0)
 
             fig, axes = plt.subplots(1, 3 + len(individual_masks), figsize=((3 + len(individual_masks)) * 4, 4.5))
@@ -497,3 +497,100 @@ def visualise_disagreement_and_predictions(experiment_name: str, output_dir: Pat
             if save_dir:
                 final_save_path = save_dir / f"disagreement_sample_{sample_idx}.png"
             plt.tight_layout(rect=[0, 0.05, 1, 0.95]); save_or_show(fig, final_save_path, display_in_notebook=display_in_notebook)
+            
+def visualise_reliability_adaptation(experiment_name: str, output_dir: Path, num_samples: int = 3, metric: str = 'williams_index', save_path: Optional[Path] = None, display_in_notebook: bool = False):
+    eval_path = output_dir / 'models' / experiment_name / 'evaluation' / 'detailed_results.pkl'
+    if not eval_path.exists():
+        print(f"Evaluation results for '{experiment_name}' not found at {eval_path}.")
+        return
+
+    model, _, dataset_path, device, config = _get_model_and_data(experiment_name, output_dir)
+    if model is None:
+        print(f"Model for '{experiment_name}' not found.")
+        return
+
+    metadata_path = output_dir / 'metadata.json'
+    if not metadata_path.exists():
+        print(f"Metadata file with reliability scores not found at {metadata_path}")
+        return
+
+    with open(eval_path, 'rb') as f:
+        detailed_results = pickle.load(f)
+    with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+        pathologist_weights = metadata.get('pathologist_weights', {})
+        p_names = metadata.get('pathologists', [])
+
+    if not pathologist_weights or not p_names:
+        print("Pathologist weights or names not found in metadata.")
+        return
+
+    if metric is None:
+        metric = config.get('objective_metric', 'grade_aware_williams_index')
+        print(f"No metric specified, using objective metric from config: '{metric}'")
+
+    scores = detailed_results['raw'].get(metric)
+    if scores is None or scores.size == 0:
+        print(f"Metric '{metric}' not found in evaluation results.")
+        return
+
+    with h5py.File(dataset_path, 'r') as f:
+        consensus_masks = torch.mode(torch.from_numpy(f['test']['individual_masks'][:]), dim=1).values.numpy()
+        non_bg_mask = np.any(consensus_masks > 0, axis=(1, 2))
+
+    original_indices = np.arange(len(scores))
+    valid_indices_original = original_indices[non_bg_mask]
+    valid_scores = scores[non_bg_mask]
+
+    if len(valid_scores) < num_samples:
+        print(f"Not enough valid samples ({len(valid_scores)}) to display {num_samples}.")
+        return
+
+    val_augmenter = KorniaValidationAugmentation(config.get('img_size', 512)).to(device)
+
+    best_filtered_indices = np.argsort(valid_scores)[-num_samples:][::-1]
+    best_indices_to_show = valid_indices_original[best_filtered_indices]
+
+    with h5py.File(dataset_path, 'r') as f:
+        test_group = f['test']
+        images_np = _sort_and_load(test_group['images'], best_indices_to_show)
+        individual_masks_np = _sort_and_load(test_group['individual_masks'], best_indices_to_show)
+
+        batch_raw = torch.from_numpy(images_np).to(device)
+        with torch.no_grad():
+            preds, _ = model(val_augmenter(batch_raw))
+            preds = preds.argmax(dim=1).cpu().numpy()
+
+    for i, sample_idx in enumerate(best_indices_to_show):
+        active_pathologists = {
+            p_name: mask for p_name, mask in zip(p_names, individual_masks_np[i]) if mask.any()
+        }
+        if not active_pathologists:
+            continue
+
+        num_cols = 2 + len(active_pathologists)
+        fig, axes = plt.subplots(1, num_cols, figsize=(num_cols * 4, 4.5), squeeze=True)
+        fig.suptitle(f'Top Sample by {metric.replace("_", " ").title()} (Score: {valid_scores[best_filtered_indices[i]]:.3f})', fontsize=16)
+
+        axes[0].imshow(images_np[i]); axes[0].set_title(f'Input (Sample {sample_idx})'); axes[0].axis('off')
+        axes[1].imshow(preds[i], cmap='viridis', vmin=0, vmax=4); axes[1].set_title('Model Prediction'); axes[1].axis('off')
+
+        for j, (p_name, p_mask) in enumerate(sorted(active_pathologists.items())):
+            ax = axes[2 + j]
+            ax.imshow(p_mask, cmap='viridis', vmin=0, vmax=4)
+
+            p_weights = pathologist_weights.get(p_name, {})
+            rel_str = ", ".join([f"{k.split('_')[-1][0]}:{v:.2f}" for k, v in p_weights.items() if 'Gleason' in k or 'Benign' in k])
+            title_str = f"{_format_pathologist_name(p_name)}\nReliability: {rel_str}"
+            ax.set_title(title_str, fontsize=9)
+            ax.axis('off')
+
+        patches = [mpatches.Patch(color=plt.get_cmap('viridis')(k/4), label=name) for k, name in enumerate(CLASS_NAMES)]
+        fig.legend(handles=patches, bbox_to_anchor=(0.5, 0.01), loc='lower center', ncol=len(CLASS_NAMES))
+        
+        final_save_path = None
+        if save_path:
+            final_save_path = save_path.with_name(f"{save_path.stem}_sample_{sample_idx}{save_path.suffix}")
+        
+        plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+        save_or_show(fig, final_save_path, display_in_notebook=display_in_notebook)
