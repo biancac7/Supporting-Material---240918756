@@ -86,7 +86,7 @@ This project does not use an executable file to run the source code. Instead, a 
 # Running the analysis notebook on Visual Studio Code
 
 1. Download the zip file through GitHub: Press on Code -> Download ZIP.
-2. Open the Code folder in Visual Studio Code.
+2. Open the folder in Visual Studio Code.
 3. Open the automated_gleason_grading_analysis_notebook.ipynb, and press on 'Run All'.
 
 This notebook only contains the results and visualisations of the project. The full notebook can be accessed through Google Colaboratory.
