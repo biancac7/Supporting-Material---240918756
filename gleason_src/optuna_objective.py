@@ -18,7 +18,7 @@ def suggest_loss_config(trial: optuna.trial.Trial, prefix: str, task_type: str =
     loss_config: Dict[str, any] = {'weighting_schemes': []}
 
     if task_type == 'segmentation':
-        loss_name = trial.suggest_categorical(f'{prefix}_loss_name', ['emd', 'focal', 'wce'])
+        loss_name = trial.suggest_categorical(f'{prefix}_loss_name', ['emd', 'williams_index', 'focal', 'wce'])
     else:
         loss_name = trial.suggest_categorical(f'{prefix}_loss_name', ['wce', 'focal'])
     loss_config['name'] = loss_name
